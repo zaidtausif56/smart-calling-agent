@@ -1,6 +1,7 @@
-# ai_agent.py
 import google.generativeai as genai
 from config import GOOGLE_API_KEY
+import pandas as pd
+from database import conn
 
 class GeminiPhoneAgent:
     def __init__(self):
@@ -50,9 +51,29 @@ class GeminiPhoneAgent:
             # Fallback greeting
             self.greeting = "Hello! This is Taaniya from VIT Market Place. May I take a moment to share our offers?"
 
+    def _execute_sql_and_format(self, sql: str) -> str:
+        # Allow only SELECT queries for safety
+        if not sql.strip().lower().startswith("select"):
+            return "SQL Response: ERROR: only SELECT queries are allowed."
+        try:
+            df = pd.read_sql_query(sql, conn)
+            if df.empty:
+                return "SQL Response: (no rows)"
+            # Return up to first 10 rows as CSV-like text
+            return "SQL Response: " + df.head(10).to_csv(index=False)
+        except Exception as e:
+            return f"SQL Response: ERROR: {str(e)}"
+
     def send(self, message_text):
         try:
             resp = self.chat.send_message(message_text)
-            return resp.text
+            text = resp.text.strip()
+            # If agent requests SQL, run it and feed results back into the chat until agent responds without new "SQL: "
+            while text.startswith("SQL:"):
+                sql = text[len("SQL:"):].strip()
+                sql_response = self._execute_sql_and_format(sql)
+                resp = self.chat.send_message(sql_response)
+                text = resp.text.strip()
+            return text
         except Exception as e:
             return "Sorry, I'm having trouble accessing the knowledge base right now."

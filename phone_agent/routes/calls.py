@@ -1,4 +1,3 @@
-# routes/calls.py
 from flask import Blueprint, request, jsonify
 from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse
@@ -68,17 +67,17 @@ def start_conversation():
     try:
         last = get_last_order(from_number)
         if last:
-            msg = f"Welcome back! Your last order was for {last['quantity']} {last['product_name']}. Would you like to reorder?"
+            msg = f"Welcome back! Your last order was for {last['quantity']} {last.get('product_name', last.get('product'))}. Would you like to reorder?"
             _speak(response, msg)
             user_states[from_number] = {"phase": "awaiting_reorder_confirm", "order": last}
-            response.gather(input="speech", action="/process_conversation", timeout=3, language="en-US")
+            response.gather(input="speech", action=f"{WEBHOOK_BASE_URL}/process_conversation", timeout=3, language="en-US")
             return str(response)
     except Exception:
         logger.exception("fetch last order failed")
 
     # Default greeting
     _speak(response, agent.greeting)
-    response.gather(input="speech", action="/process_conversation", timeout=3, language="en-US")
+    response.gather(input="speech", action=f"{WEBHOOK_BASE_URL}/process_conversation", timeout=3, language="en-US")
     return str(response)
 
 
@@ -97,50 +96,53 @@ def process_conversation():
         if any(w in user_speech for w in ["yes", "confirm", "sure", "ok", "yeah"]):
             order = state["order"]
             try:
-                add_order(from_number, order["product"], order["quantity"], order["price"])
-                _speak(response, f"✅ Your order for {order['quantity']} {order['product']} has been confirmed. Thank you!")
+                product_name = order.get("product") or order.get("product_name")
+                add_order(from_number, product_name, order.get("quantity", 1), order.get("price"))
+                _speak(response, f"✅ Your order for {order.get('quantity',1)} {product_name} has been confirmed. Thank you!")
             except Exception:
                 logger.exception("DB insert failed")
                 _speak(response, "Sorry, there was an issue confirming your order. Please try again.")
         else:
             _speak(response, "Order cancelled. Would you like to check other products?")
         user_states.pop(from_number, None)
-        response.gather(input="speech", action="/process_conversation", timeout=3, language="en-US")
+        response.gather(input="speech", action=f"{WEBHOOK_BASE_URL}/process_conversation", timeout=3, language="en-US")
         return str(response)
 
     # ========== PHASE: AWAITING PRODUCT NAME ==========
     if state.get("phase") == "asking_product":
         product_name = user_speech.strip().title()
         try:
-            df = pd.read_sql_query("SELECT * FROM inventory WHERE \"Product Name\" LIKE ? LIMIT 1", conn, params=(f"%{product_name}%",))
+            df = pd.read_sql_query('SELECT * FROM inventory WHERE "Product Name" LIKE ? LIMIT 1', conn, params=(f"%{product_name}%",))
             if not df.empty:
                 row = df.iloc[0]
                 price = int(row.get("Price in Rupees", row.get("Price", 0)))
+                product_actual = row["Product Name"]
                 user_states[from_number] = {
                     "phase": "awaiting_confirm",
-                    "order": {"product": row["Product Name"], "quantity": 1, "price": price},
+                    "order": {"product": product_actual, "quantity": 1, "price": price},
                 }
-                _speak(response, f"One {row['Product Name']} costs ₹{price}. Would you like to confirm your order?")
+                _speak(response, f"One {product_actual} costs ₹{price}. Would you like to confirm your order?")
             else:
                 _speak(response, "Sorry, that product was not found. Try saying another name.")
-                response.gather(input="speech", action="/process_conversation", timeout=3, language="en-US")
+                response.gather(input="speech", action=f"{WEBHOOK_BASE_URL}/process_conversation", timeout=3, language="en-US")
                 return str(response)
         except Exception:
             logger.exception("Product lookup failed")
             _speak(response, "Sorry, something went wrong checking the product.")
-        response.gather(input="speech", action="/process_conversation", timeout=3, language="en-US")
+        response.gather(input="speech", action=f"{WEBHOOK_BASE_URL}/process_conversation", timeout=3, language="en-US")
         return str(response)
 
     # ========== PHASE: AWAITING REORDER CONFIRM ==========
     if state.get("phase") == "awaiting_reorder_confirm":
-        if "yes" in user_speech or "confirm" in user_speech:
+        if any(w in user_speech for w in ["yes", "confirm", "sure", "ok", "yeah"]):
             order = state["order"]
-            add_order(from_number, order["product_name"], order["quantity"], order["price"])
-            _speak(response, f"Your previous order for {order['product_name']} has been rebooked. Thank you!")
+            product_name = order.get("product_name") or order.get("product")
+            add_order(from_number, product_name, order.get("quantity", 1), order.get("price"))
+            _speak(response, f"Your previous order for {product_name} has been rebooked. Thank you!")
         else:
             _speak(response, "Alright, let's explore something new!")
         user_states.pop(from_number, None)
-        response.gather(input="speech", action="/process_conversation", timeout=3, language="en-US")
+        response.gather(input="speech", action=f"{WEBHOOK_BASE_URL}/process_conversation", timeout=3, language="en-US")
         return str(response)
 
     # ========== DEFAULT: AI CONVERSATION ==========
@@ -150,7 +152,7 @@ def process_conversation():
     if re.search(r"\b(buy|order|purchase|want)\b", user_speech, re.IGNORECASE):
         _speak(response, "Sure! What product would you like to buy?")
         user_states[from_number] = {"phase": "asking_product"}
-        response.gather(input="speech", action="/process_conversation", timeout=3, language="en-US")
+        response.gather(input="speech", action=f"{WEBHOOK_BASE_URL}/process_conversation", timeout=3, language="en-US")
         return str(response)
 
     # Normal response flow
@@ -158,5 +160,5 @@ def process_conversation():
         _speak(response, bot_text[:-4])
         return str(response)
     _speak(response, bot_text)
-    response.gather(input="speech", action="/process_conversation", timeout=3, language="en-US")
+    response.gather(input="speech", action=f"{WEBHOOK_BASE_URL}/process_conversation", timeout=3, language="en-US")
     return str(response)
