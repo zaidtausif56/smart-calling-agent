@@ -1,10 +1,16 @@
 # app.py
-from flask import Flask , render_template
+from flask import Flask, render_template
 from flask_cors import CORS
 from routes.calls import calls_bp
 from routes.audio import audio_bp
 from database import init_db
 import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 def create_app():
     app = Flask(__name__)
