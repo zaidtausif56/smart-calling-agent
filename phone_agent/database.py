@@ -1,7 +1,10 @@
 import sqlite3
 import pandas as pd
 import os
+import logging
 from config import DATABASE_FILE, PRODUCTS_CSV
+
+logger = logging.getLogger("database")
 
 # Global connection (persistent within process)
 conn = None
@@ -18,18 +21,18 @@ def init_db():
     conn.row_factory = sqlite3.Row
 
     if first_time:
-        print(f"Creating new database at {DATABASE_FILE}")
+        logger.info(f"Creating new database at {DATABASE_FILE}")
 
         # Create inventory table (seed from CSV if available)
         if os.path.exists(PRODUCTS_CSV):
             try:
                 df = pd.read_csv(PRODUCTS_CSV)
                 df.to_sql("inventory", conn, if_exists="replace", index=False)
-                print(f"Inventory table initialized from {PRODUCTS_CSV}")
+                logger.info(f"Inventory table initialized from {PRODUCTS_CSV}")
             except Exception as e:
-                print("Error loading CSV:", e)
+                logger.exception(f"Error loading CSV: {e}")
         else:
-            print("Products.csv not found. Creating empty inventory table.")
+            logger.warning("Products.csv not found. Creating empty inventory table.")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS inventory (
                     "Product Name" TEXT,
@@ -42,23 +45,23 @@ def init_db():
             """)
             conn.commit()
 
-        # Create orders table
+        # Create orders table with proper schema
         conn.execute("""
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                phone_number TEXT,
-                product_name TEXT,
-                quantity INTEGER,
-                total_price REAL,
-                order_status TEXT,
+                phone_number TEXT NOT NULL,
+                product_name TEXT NOT NULL,
+                quantity INTEGER DEFAULT 1,
+                total_price REAL NOT NULL,
+                order_status TEXT DEFAULT 'confirmed',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
         conn.commit()
-        print("Orders table created.")
+        logger.info("Orders table created.")
 
     else:
-        print(f"Connected to existing database: {DATABASE_FILE}")
+        logger.info(f"Connected to existing database: {DATABASE_FILE}")
 
     return conn
 
@@ -73,34 +76,51 @@ def query_inventory(sql, params=None):
         else:
             return pd.read_sql_query(sql, conn)
     except Exception as e:
-        print("Inventory query failed:", e)
+        logger.exception(f"Inventory query failed: {e}")
         raise
 
 
 def add_order(phone, product, qty, price):
-    """Insert or update an order for a given phone number."""
+    """Insert an order for a given phone number."""
     try:
-        total = float(price) * int(qty)
+        # Ensure proper data types
+        phone = str(phone).strip()
+        product = str(product).strip()
+        qty = int(qty)
+        price = float(price)
+        total = price * qty
+        
+        logger.info(f"Adding order: phone={phone}, product={product}, qty={qty}, price={price}, total={total}")
+        
         conn.execute(
-            "INSERT INTO orders (phone_number, product_name, quantity, total_price, order_status) VALUES (?, ?, ?, ?, ?)",
+            """INSERT INTO orders (phone_number, product_name, quantity, total_price, order_status) 
+               VALUES (?, ?, ?, ?, ?)""",
             (phone, product, qty, total, "confirmed")
         )
         conn.commit()
-        print(f"Order added for {phone}: {qty} x {product}")
+        
+        logger.info(f"Order successfully added for {phone}: {qty} x {product} = ₹{total}")
+        return True
+        
     except Exception as e:
-        print("Order insert failed:", e)
+        logger.exception(f"Order insert failed: {e}")
         raise
 
 
 def get_last_order(phone):
     """Fetch the most recent order for a phone number."""
     try:
+        phone = str(phone).strip()
         cur = conn.execute(
             "SELECT * FROM orders WHERE phone_number = ? ORDER BY created_at DESC LIMIT 1",
             (phone,)
         )
         row = cur.fetchone()
-        return dict(row) if row else None
+        if row:
+            order = dict(row)
+            logger.info(f"Last order for {phone}: {order}")
+            return order
+        return None
     except Exception as e:
-        print("Error fetching last order:", e)
+        logger.exception(f"Error fetching last order: {e}")
         return None
