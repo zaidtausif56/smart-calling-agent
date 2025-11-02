@@ -124,3 +124,159 @@ def get_last_order(phone):
     except Exception as e:
         logger.exception(f"Error fetching last order: {e}")
         return None
+
+
+def get_orders_by_phone(phone):
+    """Fetch all orders for a phone number."""
+    try:
+        phone = str(phone).strip()
+        cur = conn.execute(
+            "SELECT * FROM orders WHERE phone_number = ? ORDER BY created_at DESC",
+            (phone,)
+        )
+        rows = cur.fetchall()
+        orders = [dict(row) for row in rows]
+        logger.info(f"Found {len(orders)} orders for {phone}")
+        return orders
+    except Exception as e:
+        logger.exception(f"Error fetching orders: {e}")
+        return []
+
+
+def store_otp(phone, otp):
+    """Store OTP for a phone number with expiration time."""
+    try:
+        phone = str(phone).strip()
+        
+        # Create OTP table if it doesn't exist
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS otps (
+                phone_number TEXT PRIMARY KEY,
+                otp_code TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL
+            );
+        """)
+        conn.commit()
+        
+        # Calculate expiration time (10 minutes from now)
+        import datetime
+        expires_at = datetime.datetime.now() + datetime.timedelta(minutes=10)
+        
+        # Delete any existing OTP for this phone number
+        conn.execute("DELETE FROM otps WHERE phone_number = ?", (phone,))
+        
+        # Insert new OTP
+        conn.execute(
+            "INSERT INTO otps (phone_number, otp_code, expires_at) VALUES (?, ?, ?)",
+            (phone, otp, expires_at)
+        )
+        conn.commit()
+        logger.info(f"OTP stored for {phone}")
+        return True
+        
+    except Exception as e:
+        logger.exception(f"Error storing OTP: {e}")
+        return False
+
+
+def verify_otp_code(phone, otp):
+    """Verify OTP code for a phone number."""
+    try:
+        phone = str(phone).strip()
+        otp = str(otp).strip()
+        
+        import datetime
+        now = datetime.datetime.now()
+        
+        cur = conn.execute(
+            "SELECT otp_code, expires_at FROM otps WHERE phone_number = ?",
+            (phone,)
+        )
+        row = cur.fetchone()
+        
+        if not row:
+            logger.warning(f"No OTP found for {phone}")
+            return False
+        
+        stored_otp = row['otp_code']
+        expires_at = datetime.datetime.fromisoformat(row['expires_at'])
+        
+        # Check if OTP has expired
+        if now > expires_at:
+            logger.warning(f"OTP expired for {phone}")
+            conn.execute("DELETE FROM otps WHERE phone_number = ?", (phone,))
+            conn.commit()
+            return False
+        
+        # Check if OTP matches
+        if stored_otp == otp:
+            logger.info(f"OTP verified successfully for {phone}")
+            # Delete used OTP
+            conn.execute("DELETE FROM otps WHERE phone_number = ?", (phone,))
+            conn.commit()
+            return True
+        else:
+            logger.warning(f"Invalid OTP for {phone}")
+            return False
+        
+    except Exception as e:
+        logger.exception(f"Error verifying OTP: {e}")
+        return False
+
+
+def update_order_status(order_id, phone, new_status):
+    """Update the status of an order (only if it belongs to the phone number)."""
+    try:
+        order_id = int(order_id)
+        phone = str(phone).strip()
+        new_status = str(new_status).strip()
+        
+        # Verify the order belongs to this phone number
+        cur = conn.execute(
+            "SELECT id FROM orders WHERE id = ? AND phone_number = ?",
+            (order_id, phone)
+        )
+        row = cur.fetchone()
+        
+        if not row:
+            logger.warning(f"Order {order_id} not found for {phone}")
+            return False
+        
+        # Update the status
+        conn.execute(
+            "UPDATE orders SET order_status = ? WHERE id = ?",
+            (new_status, order_id)
+        )
+        conn.commit()
+        logger.info(f"Order {order_id} status updated to {new_status}")
+        return True
+        
+    except Exception as e:
+        logger.exception(f"Error updating order status: {e}")
+        return False
+
+
+def delete_order(order_id, phone):
+    """Delete an order (only if it belongs to the phone number)."""
+    try:
+        order_id = int(order_id)
+        phone = str(phone).strip()
+        
+        # Verify the order belongs to this phone number before deleting
+        result = conn.execute(
+            "DELETE FROM orders WHERE id = ? AND phone_number = ?",
+            (order_id, phone)
+        )
+        conn.commit()
+        
+        if result.rowcount > 0:
+            logger.info(f"Order {order_id} deleted for {phone}")
+            return True
+        else:
+            logger.warning(f"Order {order_id} not found for {phone}")
+            return False
+        
+    except Exception as e:
+        logger.exception(f"Error deleting order: {e}")
+        return False

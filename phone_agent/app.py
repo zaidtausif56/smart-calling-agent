@@ -3,6 +3,7 @@ from flask import Flask, render_template
 from flask_cors import CORS
 from routes.calls import calls_bp
 from routes.audio import audio_bp
+from routes.auth import auth_bp
 from database import init_db
 import logging
 
@@ -23,6 +24,7 @@ def create_app():
     # Register blueprints
     app.register_blueprint(calls_bp)
     app.register_blueprint(audio_bp)
+    app.register_blueprint(auth_bp)
 
     return app
 

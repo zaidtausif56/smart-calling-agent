@@ -8,29 +8,32 @@ import { LogOut, Package } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 interface Order {
-  id: string;
-  items: string[];
-  total: number;
-  status: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled";
-  createdAt: string;
+  id: number;
+  phone_number: string;
+  product_name: string;
+  quantity: number;
+  total_price: number;
+  order_status: string;
+  created_at: string;
 }
 
 const Orders = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [phoneNumber, setPhoneNumber] = useState("");
   const navigate = useNavigate();
   const { toast } = useToast();
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
 
   useEffect(() => {
     const authToken = localStorage.getItem("authToken");
-    const phoneNumber = localStorage.getItem("phoneNumber");
-    if (!authToken || !phoneNumber) {
+    const storedPhone = localStorage.getItem("phoneNumber");
+    if (!authToken || !storedPhone) {
       navigate("/login");
       return;
     }
-
+    setPhoneNumber(storedPhone);
     fetchOrders(authToken);
   }, [navigate]);
 
@@ -44,7 +47,16 @@ const Orders = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setOrders(data.orders);
+        setOrders(data.orders || []);
+      } else if (response.status === 401) {
+        toast({
+          title: "Session expired",
+          description: "Please login again",
+          variant: "destructive",
+        });
+        localStorage.removeItem("authToken");
+        localStorage.removeItem("phoneNumber");
+        navigate("/login");
       } else {
         throw new Error("Failed to fetch orders");
       }
@@ -65,8 +77,8 @@ const Orders = () => {
     navigate("/");
   };
 
-  const getStatusColor = (status: Order["status"]) => {
-    switch (status) {
+  const getStatusColor = (status: string) => {
+    switch (status.toLowerCase()) {
       case "delivered":
         return "bg-green-500";
       case "shipped":
@@ -84,7 +96,10 @@ const Orders = () => {
     <div className="min-h-screen bg-background">
       <header className="border-b">
         <div className="container mx-auto flex h-16 items-center justify-between px-4">
-          <h1 className="text-2xl font-bold text-primary">My Orders</h1>
+          <div>
+            <h1 className="text-2xl font-bold text-primary">My Orders</h1>
+            <p className="text-xs text-muted-foreground">{phoneNumber}</p>
+          </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <Button onClick={handleLogout} variant="outline" size="sm">
@@ -119,22 +134,29 @@ const Orders = () => {
               >
                 <CardHeader>
                   <div className="flex items-start justify-between">
-                    <CardTitle className="text-lg">Order #{order.id.slice(0, 8)}</CardTitle>
-                    <Badge className={getStatusColor(order.status)}>
-                      {order.status}
+                    <CardTitle className="text-lg">Order #{order.id}</CardTitle>
+                    <Badge className={getStatusColor(order.order_status)}>
+                      {order.order_status}
                     </Badge>
                   </div>
                   <CardDescription>
-                    {new Date(order.createdAt).toLocaleDateString()}
+                    {new Date(order.created_at).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
+                    <p className="text-sm font-medium">{order.product_name}</p>
                     <p className="text-sm text-muted-foreground">
-                      {order.items.length} item(s)
+                      Quantity: {order.quantity}
                     </p>
                     <p className="text-lg font-semibold">
-                      ${order.total.toFixed(2)}
+                      ₹{order.total_price.toFixed(2)}
                     </p>
                   </div>
                 </CardContent>

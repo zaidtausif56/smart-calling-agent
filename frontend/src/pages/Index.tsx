@@ -1,18 +1,43 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Phone } from "lucide-react";
+import { Phone, LogOut, Package } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const Index = () => {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [userPhone, setUserPhone] = useState("");
   const navigate = useNavigate();
   const { toast } = useToast();
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+  useEffect(() => {
+    // Check if user is logged in
+    const authToken = localStorage.getItem("authToken");
+    const storedPhone = localStorage.getItem("phoneNumber");
+    
+    if (authToken && storedPhone) {
+      setIsLoggedIn(true);
+      setUserPhone(storedPhone);
+      setPhoneNumber(storedPhone); // Auto-fill phone number for logged-in users
+    }
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem("authToken");
+    localStorage.removeItem("phoneNumber");
+    setIsLoggedIn(false);
+    setUserPhone("");
+    toast({
+      title: "Logged out",
+      description: "You have been logged out successfully",
+    });
+  };
 
   const handleRequestCall = async () => {
     if (!phoneNumber || phoneNumber.length < 10) {
@@ -59,9 +84,22 @@ const Index = () => {
           <h1 className="text-2xl font-bold text-primary">VIT Marketplace</h1>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <Button onClick={() => navigate("/login")} variant="outline">
-              Login
-            </Button>
+            {isLoggedIn ? (
+              <>
+                <Button onClick={() => navigate("/orders")} variant="outline">
+                  <Package className="mr-2 h-4 w-4" />
+                  My Orders
+                </Button>
+                <Button onClick={handleLogout} variant="outline">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Logout
+                </Button>
+              </>
+            ) : (
+              <Button onClick={() => navigate("/login")} variant="outline">
+                Login
+              </Button>
+            )}
           </div>
         </div>
       </header>
@@ -72,9 +110,14 @@ const Index = () => {
             <div className="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
               <Phone className="h-8 w-8 text-primary" />
             </div>
-            <h2 className="mb-4 text-4xl font-bold">Order Anything by Phone</h2>
+            <h2 className="mb-4 text-4xl font-bold">
+              {isLoggedIn ? `Welcome back!` : "Order Anything by Phone"}
+            </h2>
             <p className="text-lg text-muted-foreground">
-              Enter your phone number and our AI voice agent will call you to help place your order
+              {isLoggedIn 
+                ? `You're logged in as ${userPhone}. Request a call or view your orders.`
+                : "Enter your phone number and our AI voice agent will call you to help place your order"
+              }
             </p>
           </div>
 
@@ -82,25 +125,49 @@ const Index = () => {
             <CardHeader>
               <CardTitle>Request a Call</CardTitle>
               <CardDescription>
-                We'll call you within minutes to take your order
+                {isLoggedIn 
+                  ? "We'll call you to help place a new order"
+                  : "We'll call you within minutes to take your order"
+                }
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Input
-                type="tel"
-                placeholder="Enter your phone number"
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                className="text-lg"
-              />
-              <Button
-                onClick={handleRequestCall}
-                disabled={loading}
-                size="lg"
-                className="w-full"
-              >
-                {loading ? "Requesting..." : "Request Call Now"}
-              </Button>
+              {isLoggedIn ? (
+                // Logged in: Show disabled input with user's number and clear CTA
+                <>
+                  <div className="rounded-lg bg-muted/50 p-4 text-center">
+                    <p className="text-sm text-muted-foreground mb-1">Calling</p>
+                    <p className="text-lg font-semibold">{phoneNumber}</p>
+                  </div>
+                  <Button
+                    onClick={handleRequestCall}
+                    disabled={loading}
+                    size="lg"
+                    className="w-full"
+                  >
+                    {loading ? "Requesting..." : "Request Call to Place Order"}
+                  </Button>
+                </>
+              ) : (
+                // Not logged in: Show input field
+                <>
+                  <Input
+                    type="tel"
+                    placeholder="Enter your phone number"
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    className="text-lg"
+                  />
+                  <Button
+                    onClick={handleRequestCall}
+                    disabled={loading}
+                    size="lg"
+                    className="w-full"
+                  >
+                    {loading ? "Requesting..." : "Request Call Now"}
+                  </Button>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>

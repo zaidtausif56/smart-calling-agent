@@ -14,7 +14,7 @@ DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 # Initialize Deepgram client. If DEEPGRAM_API_KEY is None, DeepgramClient() may still pick it from env.
 deepgram = DeepgramClient()
 
-def synthesize_audio(text: str, output_path: str, model: str = "aura-2-thalia-en") -> bool:
+def synthesize_audio(text: str, output_path: str, model: str = "aura-asteria-en") -> bool:
     """
     Use Deepgram to convert text to speech and save as MP3.
     Returns True on success, False on failure.

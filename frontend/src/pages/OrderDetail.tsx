@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, MapPin, X } from "lucide-react";
+import { ArrowLeft, Trash2 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   AlertDialog,
@@ -19,13 +19,13 @@ import {
 } from "@/components/ui/alert-dialog";
 
 interface OrderDetail {
-  id: string;
-  items: Array<{ name: string; quantity: number; price: number }>;
-  total: number;
-  status: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled";
-  createdAt: string;
-  shippingAddress?: string;
-  trackingNumber?: string;
+  id: number;
+  phone_number: string;
+  product_name: string;
+  quantity: number;
+  total_price: number;
+  order_status: string;
+  created_at: string;
 }
 
 const OrderDetail = () => {
@@ -35,7 +35,8 @@ const OrderDetail = () => {
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+  
   useEffect(() => {
     const authToken = localStorage.getItem("authToken");
     if (!authToken) {
@@ -56,7 +57,16 @@ const OrderDetail = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setOrder(data);
+        setOrder(data.order);
+      } else if (response.status === 401) {
+        toast({
+          title: "Session expired",
+          description: "Please login again",
+          variant: "destructive",
+        });
+        localStorage.removeItem("authToken");
+        localStorage.removeItem("phoneNumber");
+        navigate("/login");
       } else {
         throw new Error("Failed to fetch order details");
       }
@@ -66,28 +76,17 @@ const OrderDetail = () => {
         description: "Failed to load order details",
         variant: "destructive",
       });
+      navigate("/orders");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleTrack = () => {
-    if (order?.trackingNumber) {
-      // TODO: Replace with your tracking URL
-      window.open(`YOUR_TRACKING_URL/${order.trackingNumber}`, "_blank");
-    } else {
-      toast({
-        title: "No tracking available",
-        description: "Tracking information is not available yet",
-      });
-    }
-  };
-
-  const handleCancel = async () => {
+  const handleCancelOrder = async () => {
     const authToken = localStorage.getItem("authToken");
     try {
-      const response = await fetch(`${API_BASE_URL}/api/orders/${orderId}/cancel`, {
-        method: "POST",
+      const response = await fetch(`${API_BASE_URL}/api/orders/${orderId}`, {
+        method: "DELETE",
         headers: {
           Authorization: `Bearer ${authToken}`,
         },
@@ -98,8 +97,8 @@ const OrderDetail = () => {
           title: "Order cancelled",
           description: "Your order has been cancelled successfully",
         });
-        setOrder((prev) => prev ? { ...prev, status: "cancelled" } : null);
         setShowCancelDialog(false);
+        navigate("/orders");
       } else {
         throw new Error("Failed to cancel order");
       }
@@ -112,8 +111,8 @@ const OrderDetail = () => {
     }
   };
 
-  const getStatusColor = (status: OrderDetail["status"]) => {
-    switch (status) {
+  const getStatusColor = (status: string) => {
+    switch (status.toLowerCase()) {
       case "delivered":
         return "bg-green-500";
       case "shipped":
@@ -127,7 +126,7 @@ const OrderDetail = () => {
     }
   };
 
-  const canCancel = order?.status === "pending" || order?.status === "confirmed";
+  const canCancel = order?.order_status.toLowerCase() === "confirmed";
 
   if (loading) {
     return <div className="flex min-h-screen items-center justify-center">Loading...</div>;
@@ -155,27 +154,31 @@ const OrderDetail = () => {
             <CardHeader>
               <div className="flex items-start justify-between">
                 <div>
-                  <CardTitle>Order #{order.id.slice(0, 8)}</CardTitle>
+                  <CardTitle>Order #{order.id}</CardTitle>
                   <CardDescription>
-                    Placed on {new Date(order.createdAt).toLocaleDateString()}
+                    Placed on {new Date(order.created_at).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
                   </CardDescription>
                 </div>
-                <Badge className={getStatusColor(order.status)}>{order.status}</Badge>
+                <Badge className={getStatusColor(order.order_status)}>{order.order_status}</Badge>
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
               <div>
-                <h3 className="mb-4 font-semibold">Order Items</h3>
+                <h3 className="mb-4 font-semibold">Order Details</h3>
                 <div className="space-y-3">
-                  {order.items.map((item, index) => (
-                    <div key={index} className="flex justify-between">
-                      <div>
-                        <p className="font-medium">{item.name}</p>
-                        <p className="text-sm text-muted-foreground">Qty: {item.quantity}</p>
-                      </div>
-                      <p className="font-semibold">${item.price.toFixed(2)}</p>
+                  <div className="flex justify-between">
+                    <div>
+                      <p className="font-medium">{order.product_name}</p>
+                      <p className="text-sm text-muted-foreground">Quantity: {order.quantity}</p>
                     </div>
-                  ))}
+                    <p className="font-semibold">₹{order.total_price.toFixed(2)}</p>
+                  </div>
                 </div>
               </div>
 
@@ -183,38 +186,29 @@ const OrderDetail = () => {
 
               <div className="flex justify-between text-lg font-bold">
                 <span>Total</span>
-                <span>${order.total.toFixed(2)}</span>
+                <span>₹{order.total_price.toFixed(2)}</span>
               </div>
 
-              {order.shippingAddress && (
+              <Separator />
+
+              <div>
+                <h3 className="mb-2 font-semibold">Contact Information</h3>
+                <p className="text-muted-foreground">{order.phone_number}</p>
+              </div>
+
+              {canCancel && (
                 <>
                   <Separator />
-                  <div>
-                    <h3 className="mb-2 flex items-center font-semibold">
-                      <MapPin className="mr-2 h-4 w-4" />
-                      Shipping Address
-                    </h3>
-                    <p className="text-muted-foreground">{order.shippingAddress}</p>
-                  </div>
-                </>
-              )}
-
-              <div className="flex gap-3">
-                <Button onClick={handleTrack} className="flex-1" variant="outline">
-                  <MapPin className="mr-2 h-4 w-4" />
-                  Track Order
-                </Button>
-                {canCancel && (
                   <Button
-                    onClick={() => setShowCancelDialog(true)}
-                    className="flex-1"
                     variant="destructive"
+                    className="w-full"
+                    onClick={() => setShowCancelDialog(true)}
                   >
-                    <X className="mr-2 h-4 w-4" />
+                    <Trash2 className="mr-2 h-4 w-4" />
                     Cancel Order
                   </Button>
-                )}
-              </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -223,14 +217,16 @@ const OrderDetail = () => {
       <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Cancel Order?</AlertDialogTitle>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to cancel this order? This action cannot be undone.
+              This action cannot be undone. This will permanently cancel your order.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>No, keep order</AlertDialogCancel>
-            <AlertDialogAction onClick={handleCancel}>Yes, cancel order</AlertDialogAction>
+            <AlertDialogCancel>Keep Order</AlertDialogCancel>
+            <AlertDialogAction onClick={handleCancelOrder} className="bg-destructive text-destructive-foreground">
+              Cancel Order
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
