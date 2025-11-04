@@ -28,7 +28,10 @@ const Login = () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/send-otp`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true",
+        },
         body: JSON.stringify({ phoneNumber }),
       });
 
@@ -68,7 +71,10 @@ const Login = () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/verify-otp`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true",
+        },
         body: JSON.stringify({ phoneNumber, otp }),
       });
 

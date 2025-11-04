@@ -53,7 +53,10 @@ const Index = () => {
     try {
       const response = await fetch(`${API_BASE_URL}/make_call`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true",
+        },
         body: JSON.stringify({ phone_number: phoneNumber }),
       });
 
@@ -62,7 +65,10 @@ const Index = () => {
           title: "Success!",
           description: "You'll receive a call shortly",
         });
-        setPhoneNumber("");
+        // Reset phone number: keep it for logged-in users, clear for guests
+        if (!isLoggedIn) {
+          setPhoneNumber("");
+        }
       } else {
         throw new Error("Failed to request call");
       }

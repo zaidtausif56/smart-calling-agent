@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { LogOut, Package } from "lucide-react";
+import { LogOut, Package, MapPin, Phone } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 interface Order {
@@ -13,6 +13,7 @@ interface Order {
   product_name: string;
   quantity: number;
   total_price: number;
+  delivery_address?: string;
   order_status: string;
   created_at: string;
 }
@@ -42,6 +43,7 @@ const Orders = () => {
       const response = await fetch(`${API_BASE_URL}/api/orders`, {
         headers: {
           Authorization: `Bearer ${authToken}`,
+          "ngrok-skip-browser-warning": "true",
         },
       });
 
@@ -101,6 +103,10 @@ const Orders = () => {
             <p className="text-xs text-muted-foreground">{phoneNumber}</p>
           </div>
           <div className="flex items-center gap-2">
+            <Button onClick={() => navigate("/")} variant="default" size="sm">
+              <Phone className="mr-2 h-4 w-4" />
+              Place Order
+            </Button>
             <ThemeToggle />
             <Button onClick={handleLogout} variant="outline" size="sm">
               <LogOut className="mr-2 h-4 w-4" />
@@ -126,7 +132,7 @@ const Orders = () => {
           </Card>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {orders.map((order) => (
+            {orders.map((order, index) => (
               <Card
                 key={order.id}
                 className="cursor-pointer transition-shadow hover:shadow-lg"
@@ -134,7 +140,7 @@ const Orders = () => {
               >
                 <CardHeader>
                   <div className="flex items-start justify-between">
-                    <CardTitle className="text-lg">Order #{order.id}</CardTitle>
+                    <CardTitle className="text-lg">Order #{orders.length - index}</CardTitle>
                     <Badge className={getStatusColor(order.order_status)}>
                       {order.order_status}
                     </Badge>
@@ -155,6 +161,14 @@ const Orders = () => {
                     <p className="text-sm text-muted-foreground">
                       Quantity: {order.quantity}
                     </p>
+                    {order.delivery_address && (
+                      <div className="flex items-start gap-1 text-sm text-muted-foreground">
+                        <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                        <p className="line-clamp-2">
+                          {order.delivery_address}
+                        </p>
+                      </div>
+                    )}
                     <p className="text-lg font-semibold">
                       ₹{order.total_price.toFixed(2)}
                     </p>

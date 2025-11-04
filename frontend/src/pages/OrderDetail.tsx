@@ -24,6 +24,7 @@ interface OrderDetail {
   product_name: string;
   quantity: number;
   total_price: number;
+  delivery_address?: string;
   order_status: string;
   created_at: string;
 }
@@ -31,6 +32,7 @@ interface OrderDetail {
 const OrderDetail = () => {
   const { orderId } = useParams();
   const [order, setOrder] = useState<OrderDetail | null>(null);
+  const [orderNumber, setOrderNumber] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const navigate = useNavigate();
@@ -49,15 +51,30 @@ const OrderDetail = () => {
 
   const fetchOrderDetail = async (authToken: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/orders/${orderId}`, {
+      // Fetch all orders to determine the sequential order number
+      const allOrdersResponse = await fetch(`${API_BASE_URL}/api/orders`, {
         headers: {
           Authorization: `Bearer ${authToken}`,
+          "ngrok-skip-browser-warning": "true",
         },
       });
 
-      if (response.ok) {
+      const response = await fetch(`${API_BASE_URL}/api/orders/${orderId}`, {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          "ngrok-skip-browser-warning": "true",
+        },
+      });
+
+      if (response.ok && allOrdersResponse.ok) {
         const data = await response.json();
+        const allOrdersData = await allOrdersResponse.json();
         setOrder(data.order);
+        
+        // Calculate sequential order number (most recent = 1)
+        const allOrders = allOrdersData.orders || [];
+        const orderIndex = allOrders.findIndex((o: OrderDetail) => o.id === parseInt(orderId || "0"));
+        setOrderNumber(allOrders.length - orderIndex);
       } else if (response.status === 401) {
         toast({
           title: "Session expired",
@@ -86,10 +103,13 @@ const OrderDetail = () => {
     const authToken = localStorage.getItem("authToken");
     try {
       const response = await fetch(`${API_BASE_URL}/api/orders/${orderId}`, {
-        method: "DELETE",
+        method: "PATCH",
         headers: {
           Authorization: `Bearer ${authToken}`,
+          "ngrok-skip-browser-warning": "true",
+          "Content-Type": "application/json",
         },
+        body: JSON.stringify({ status: "cancelled" }),
       });
 
       if (response.ok) {
@@ -98,7 +118,9 @@ const OrderDetail = () => {
           description: "Your order has been cancelled successfully",
         });
         setShowCancelDialog(false);
-        navigate("/orders");
+        // Refresh the order to show updated status
+        const updatedOrder = { ...order!, order_status: "cancelled" };
+        setOrder(updatedOrder);
       } else {
         throw new Error("Failed to cancel order");
       }
@@ -195,6 +217,16 @@ const OrderDetail = () => {
                 <h3 className="mb-2 font-semibold">Contact Information</h3>
                 <p className="text-muted-foreground">{order.phone_number}</p>
               </div>
+
+              {order.delivery_address && (
+                <>
+                  <Separator />
+                  <div>
+                    <h3 className="mb-2 font-semibold">Delivery Address</h3>
+                    <p className="text-muted-foreground whitespace-pre-line">{order.delivery_address}</p>
+                  </div>
+                </>
+              )}
 
               {canCancel && (
                 <>
