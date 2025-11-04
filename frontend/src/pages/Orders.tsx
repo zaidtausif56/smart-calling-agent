@@ -8,7 +8,7 @@ import { LogOut, Package, MapPin, Phone } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 interface Order {
-  id: number;
+  id: string;  // UUID string
   phone_number: string;
   product_name: string;
   quantity: number;

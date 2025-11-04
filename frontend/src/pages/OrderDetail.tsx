@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 interface OrderDetail {
-  id: number;
+  id: string;  // UUID string
   phone_number: string;
   product_name: string;
   quantity: number;
@@ -73,7 +73,7 @@ const OrderDetail = () => {
         
         // Calculate sequential order number (most recent = 1)
         const allOrders = allOrdersData.orders || [];
-        const orderIndex = allOrders.findIndex((o: OrderDetail) => o.id === parseInt(orderId || "0"));
+        const orderIndex = allOrders.findIndex((o: OrderDetail) => o.id === orderId);
         setOrderNumber(allOrders.length - orderIndex);
       } else if (response.status === 401) {
         toast({
