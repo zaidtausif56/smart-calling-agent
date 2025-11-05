@@ -1,7 +1,7 @@
 import google.generativeai as genai
 from config import GOOGLE_API_KEY
 import pandas as pd
-from database import conn
+from database import get_db_connection
 import logging
 
 logger = logging.getLogger("ai_agent")
@@ -9,7 +9,8 @@ logger = logging.getLogger("ai_agent")
 class GeminiPhoneAgent:
     def __init__(self):
         genai.configure(api_key=GOOGLE_API_KEY)
-        self.model = genai.GenerativeModel("gemini-2.0-flash")
+        # Use gemini-2.5-flash as per working version
+        self.model = genai.GenerativeModel("gemini-2.5-flash")
         self.chat = self.model.start_chat(history=[])
         self.greeting = ""
         self.initialize_chat()
@@ -25,6 +26,8 @@ class GeminiPhoneAgent:
         - Ask clarifying questions only when necessary.
         - Avoid long explanations—keep responses brief.
         - Your final target is to convince the user to buy something and close sales.
+        - When the customer wants to proceed with a purchase or confirms they want to buy, ask "Would you like me to process this for you now?" to get final confirmation.
+        - IMPORTANT: When customer confirms the purchase (says yes after you ask to process), respond with "Perfect! Your order for [quantity] [product name] at [price] rupees has been placed." This is the trigger for the system to collect delivery address.
         - If the customer is satisfied and does not need anything else, conclude the call with a polite farewell and then type 'EXIT' to cut the call.
         - When asked, 'Who are you?', respond: 'I am a person who assists people with their queries.'
         - Understand the customer's sentiments and respond to them accordingly to make them feel valued.
@@ -36,7 +39,7 @@ class GeminiPhoneAgent:
         While searching for item, always search for close matches as exact match may not be always there, but that shouldn't discourage the user from buying. Be a salesman. You can make repeated SQL queries before replying to the user. For example, if you are not sure which category to search for, see the distinct categories of items available, then see the items in relevant categories.
         
         Database Summary:
-        This database represents an inventory of products in a store. It contains columns 'Product Name', 'Category', 'Brand', 'Price in Rupees', 'Stock', 'Description'
+        This database represents a inventory of products in a store. It contains columns 'Product Name', 'Category', 'Brand', 'Price in Rupees', 'Stock',' Description'
         
         First Few Lines of Database:
         Product Name,Category,Brand,Price in Rupees,Stock,Description
@@ -46,7 +49,7 @@ class GeminiPhoneAgent:
         Wheat Flour,Groceries,Aashirvaad,250,200,Premium quality wheat flour (5kg pack)
         
         You are calling the customer so start with a catchy line for him/her so that he/she wants to buy something. If you think you need to query inventory items then you can do that at the beginning (using "SQL: ") before talking to the user.
-        Start with "Hello! This is Alice from V-I-T Market Place, your one-stop destination for amazing deals and top-quality products. We have some exciting offers tailored just for you—may I take a moment to share them?"
+        Start with "Hello! This is Jenny from V-I-T Market Place, your one-stop destination for amazing deals and top-quality products. We have some exciting offers tailored just for you—may I take a moment to share them?"
         """
         try:
             # Get the initial greeting - handle SQL queries if any
@@ -66,7 +69,7 @@ class GeminiPhoneAgent:
         except Exception as e:
             logger.exception(f"Error initializing chat: {e}")
             # Fallback greeting
-            self.greeting = "Hello! This is Alice from VIT Market Place. May I take a moment to share our offers?"
+            self.greeting = "Hello! This is Taaniya from V-I-T Market Place. May I take a moment to share our offers?"
 
     def _execute_sql_and_format(self, sql: str) -> str:
         """Execute SQL query and return formatted result"""
@@ -77,7 +80,11 @@ class GeminiPhoneAgent:
             return "SQL Response: ERROR: only SELECT queries are allowed."
         
         try:
-            df = pd.read_sql_query(sql_clean, conn)
+            # Get the database connection
+            db_conn = get_db_connection()
+            
+            # Use pandas to execute SQL query
+            df = pd.read_sql_query(sql_clean, db_conn)
             if df.empty:
                 return "SQL Response: No products found matching your criteria."
             
@@ -89,7 +96,7 @@ class GeminiPhoneAgent:
             logger.exception(f"SQL execution error: {e}")
             return f"SQL Response: ERROR: {str(e)}"
 
-    def send(self, message_text):
+    def send_message(self, message_text):
         """Send message to agent and get response, handling SQL queries automatically"""
         try:
             resp = self.chat.send_message(message_text)
@@ -101,10 +108,11 @@ class GeminiPhoneAgent:
             iteration = 0
             max_iterations = 5  # Prevent infinite loops
             
-            while text.startswith("SQL:") and iteration < max_iterations:
+            while "SQL: " in text and iteration < max_iterations:
                 iteration += 1
                 # Extract SQL query (first line after SQL:)
-                sql_line = text[4:].strip().split('\n')[0]
+                sql_start = text.index("SQL: ")
+                sql_line = text[sql_start + 5:].strip().split('\n')[0]
                 logger.info(f"Executing SQL query (iteration {iteration}): {sql_line}")
                 
                 # Execute SQL and get results
@@ -121,7 +129,7 @@ class GeminiPhoneAgent:
                 return "I'm having trouble accessing the product information right now. Could you please rephrase your request?"
             
             # SAFETY CHECK: Make sure agent didn't return raw SQL response
-            if text.startswith("SQL Response:"):
+            if text.startswith("SQL Response:") or text.startswith("SQL:"):
                 logger.error(f"Agent returned raw SQL response instead of natural language: {text[:200]}")
                 return "I found some products but I'm having trouble describing them. Could you ask me about a specific product?"
             
@@ -133,5 +141,5 @@ class GeminiPhoneAgent:
             return text
             
         except Exception as e:
-            logger.exception(f"Error in send method: {e}")
+            logger.exception(f"Error in send_message method: {e}")
             return "Sorry, I'm having trouble processing your request right now. Could you please try again?"
