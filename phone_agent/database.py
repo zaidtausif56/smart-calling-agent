@@ -2,6 +2,7 @@ import sqlite3
 import pandas as pd
 import os
 import logging
+import uuid
 from config import DATABASE_FILE, PRODUCTS_CSV
 
 logger = logging.getLogger("database")
@@ -45,14 +46,15 @@ def init_db():
             """)
             conn.commit()
 
-        # Create orders table with proper schema
+        # Create orders table with proper schema (using UUID for id)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS orders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT PRIMARY KEY,
                 phone_number TEXT NOT NULL,
                 product_name TEXT NOT NULL,
                 quantity INTEGER DEFAULT 1,
                 total_price REAL NOT NULL,
+                delivery_address TEXT,
                 order_status TEXT DEFAULT 'confirmed',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
@@ -62,45 +64,113 @@ def init_db():
 
     else:
         logger.info(f"Connected to existing database: {DATABASE_FILE}")
+        
+        # Migration: Add delivery_address column if it doesn't exist
+        try:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(orders)")
+            columns = {col[1]: col[2] for col in cursor.fetchall()}  # {column_name: type}
+            
+            if 'delivery_address' not in columns:
+                logger.info("Adding delivery_address column to orders table")
+                conn.execute("ALTER TABLE orders ADD COLUMN delivery_address TEXT")
+                conn.commit()
+                logger.info("Migration completed: delivery_address column added")
+            
+            # Migration: Convert id column from INTEGER to TEXT (UUID)
+            # Check if id column is INTEGER type
+            if 'id' in columns and columns['id'].upper() == 'INTEGER':
+                logger.info("Migrating orders table from INTEGER id to UUID...")
+                
+                # Create new orders table with UUID
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS orders_new (
+                        id TEXT PRIMARY KEY,
+                        phone_number TEXT NOT NULL,
+                        product_name TEXT NOT NULL,
+                        quantity INTEGER DEFAULT 1,
+                        total_price REAL NOT NULL,
+                        delivery_address TEXT,
+                        order_status TEXT DEFAULT 'confirmed',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                
+                # Copy data from old table to new table with UUID generation
+                cursor.execute("SELECT id, phone_number, product_name, quantity, total_price, delivery_address, order_status, created_at FROM orders ORDER BY id")
+                old_orders = cursor.fetchall()
+                
+                for old_order in old_orders:
+                    new_uuid = str(uuid.uuid4())
+                    conn.execute(
+                        """INSERT INTO orders_new (id, phone_number, product_name, quantity, total_price, delivery_address, order_status, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (new_uuid, old_order[1], old_order[2], old_order[3], old_order[4], old_order[5], old_order[6], old_order[7])
+                    )
+                
+                # Drop old table and rename new table
+                conn.execute("DROP TABLE orders")
+                conn.execute("ALTER TABLE orders_new RENAME TO orders")
+                conn.commit()
+                
+                logger.info(f"Migration completed: Converted {len(old_orders)} orders to UUID format")
+                
+        except Exception as e:
+            logger.exception(f"Migration error: {e}")
 
     return conn
 
 
 # --- Database helpers ---
 
+def get_db_connection():
+    """Return the database connection. Initialize if needed."""
+    global conn
+    if conn is None:
+        init_db()
+    return conn
+
+
 def query_inventory(sql, params=None):
     """Return a DataFrame for a SELECT query against inventory."""
     try:
+        db_conn = get_db_connection()
         if params:
-            return pd.read_sql_query(sql, conn, params=params)
+            return pd.read_sql_query(sql, db_conn, params=params)
         else:
-            return pd.read_sql_query(sql, conn)
+            return pd.read_sql_query(sql, db_conn)
     except Exception as e:
         logger.exception(f"Inventory query failed: {e}")
         raise
 
 
-def add_order(phone, product, qty, price):
-    """Insert an order for a given phone number."""
+def add_order(phone, product, qty, price, address=None):
+    """Insert an order for a given phone number with delivery address. Returns the UUID of the new order."""
     try:
+        db_conn = get_db_connection()
+        
         # Ensure proper data types
         phone = str(phone).strip()
         product = str(product).strip()
         qty = int(qty)
         price = float(price)
         total = price * qty
+        address = str(address).strip() if address else None
         
-        logger.info(f"Adding order: phone={phone}, product={product}, qty={qty}, price={price}, total={total}")
+        # Generate UUID for the order
+        order_id = str(uuid.uuid4())
         
-        conn.execute(
-            """INSERT INTO orders (phone_number, product_name, quantity, total_price, order_status) 
-               VALUES (?, ?, ?, ?, ?)""",
-            (phone, product, qty, total, "confirmed")
+        logger.info(f"Adding order: id={order_id}, phone={phone}, product={product}, qty={qty}, price={price}, total={total}, address={address}")
+        
+        db_conn.execute(
+            """INSERT INTO orders (id, phone_number, product_name, quantity, total_price, delivery_address, order_status) 
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (order_id, phone, product, qty, total, address, "confirmed")
         )
-        conn.commit()
+        db_conn.commit()
         
-        logger.info(f"Order successfully added for {phone}: {qty} x {product} = ₹{total}")
-        return True
+        logger.info(f"Order successfully added for {phone}: {qty} x {product} = ₹{total} to {address} (ID: {order_id})")
+        return order_id
         
     except Exception as e:
         logger.exception(f"Order insert failed: {e}")
@@ -110,8 +180,9 @@ def add_order(phone, product, qty, price):
 def get_last_order(phone):
     """Fetch the most recent order for a phone number."""
     try:
+        db_conn = get_db_connection()
         phone = str(phone).strip()
-        cur = conn.execute(
+        cur = db_conn.execute(
             "SELECT * FROM orders WHERE phone_number = ? ORDER BY created_at DESC LIMIT 1",
             (phone,)
         )
@@ -129,8 +200,9 @@ def get_last_order(phone):
 def get_orders_by_phone(phone):
     """Fetch all orders for a phone number."""
     try:
+        db_conn = get_db_connection()
         phone = str(phone).strip()
-        cur = conn.execute(
+        cur = db_conn.execute(
             "SELECT * FROM orders WHERE phone_number = ? ORDER BY created_at DESC",
             (phone,)
         )
@@ -146,10 +218,11 @@ def get_orders_by_phone(phone):
 def store_otp(phone, otp):
     """Store OTP for a phone number with expiration time."""
     try:
+        db_conn = get_db_connection()
         phone = str(phone).strip()
         
         # Create OTP table if it doesn't exist
-        conn.execute("""
+        db_conn.execute("""
             CREATE TABLE IF NOT EXISTS otps (
                 phone_number TEXT PRIMARY KEY,
                 otp_code TEXT NOT NULL,
@@ -157,21 +230,21 @@ def store_otp(phone, otp):
                 expires_at TIMESTAMP NOT NULL
             );
         """)
-        conn.commit()
+        db_conn.commit()
         
         # Calculate expiration time (10 minutes from now)
         import datetime
         expires_at = datetime.datetime.now() + datetime.timedelta(minutes=10)
         
         # Delete any existing OTP for this phone number
-        conn.execute("DELETE FROM otps WHERE phone_number = ?", (phone,))
+        db_conn.execute("DELETE FROM otps WHERE phone_number = ?", (phone,))
         
         # Insert new OTP
-        conn.execute(
+        db_conn.execute(
             "INSERT INTO otps (phone_number, otp_code, expires_at) VALUES (?, ?, ?)",
             (phone, otp, expires_at)
         )
-        conn.commit()
+        db_conn.commit()
         logger.info(f"OTP stored for {phone}")
         return True
         
@@ -183,13 +256,14 @@ def store_otp(phone, otp):
 def verify_otp_code(phone, otp):
     """Verify OTP code for a phone number."""
     try:
+        db_conn = get_db_connection()
         phone = str(phone).strip()
         otp = str(otp).strip()
         
         import datetime
         now = datetime.datetime.now()
         
-        cur = conn.execute(
+        cur = db_conn.execute(
             "SELECT otp_code, expires_at FROM otps WHERE phone_number = ?",
             (phone,)
         )
@@ -205,16 +279,16 @@ def verify_otp_code(phone, otp):
         # Check if OTP has expired
         if now > expires_at:
             logger.warning(f"OTP expired for {phone}")
-            conn.execute("DELETE FROM otps WHERE phone_number = ?", (phone,))
-            conn.commit()
+            db_conn.execute("DELETE FROM otps WHERE phone_number = ?", (phone,))
+            db_conn.commit()
             return False
         
         # Check if OTP matches
         if stored_otp == otp:
             logger.info(f"OTP verified successfully for {phone}")
             # Delete used OTP
-            conn.execute("DELETE FROM otps WHERE phone_number = ?", (phone,))
-            conn.commit()
+            db_conn.execute("DELETE FROM otps WHERE phone_number = ?", (phone,))
+            db_conn.commit()
             return True
         else:
             logger.warning(f"Invalid OTP for {phone}")
@@ -228,12 +302,13 @@ def verify_otp_code(phone, otp):
 def update_order_status(order_id, phone, new_status):
     """Update the status of an order (only if it belongs to the phone number)."""
     try:
-        order_id = int(order_id)
+        db_conn = get_db_connection()
+        order_id = str(order_id).strip()  # UUID as string
         phone = str(phone).strip()
         new_status = str(new_status).strip()
         
         # Verify the order belongs to this phone number
-        cur = conn.execute(
+        cur = db_conn.execute(
             "SELECT id FROM orders WHERE id = ? AND phone_number = ?",
             (order_id, phone)
         )
@@ -244,11 +319,11 @@ def update_order_status(order_id, phone, new_status):
             return False
         
         # Update the status
-        conn.execute(
+        db_conn.execute(
             "UPDATE orders SET order_status = ? WHERE id = ?",
             (new_status, order_id)
         )
-        conn.commit()
+        db_conn.commit()
         logger.info(f"Order {order_id} status updated to {new_status}")
         return True
         
@@ -260,15 +335,16 @@ def update_order_status(order_id, phone, new_status):
 def delete_order(order_id, phone):
     """Delete an order (only if it belongs to the phone number)."""
     try:
-        order_id = int(order_id)
+        db_conn = get_db_connection()
+        order_id = str(order_id).strip()  # UUID as string
         phone = str(phone).strip()
         
         # Verify the order belongs to this phone number before deleting
-        result = conn.execute(
+        result = db_conn.execute(
             "DELETE FROM orders WHERE id = ? AND phone_number = ?",
             (order_id, phone)
         )
-        conn.commit()
+        db_conn.commit()
         
         if result.rowcount > 0:
             logger.info(f"Order {order_id} deleted for {phone}")

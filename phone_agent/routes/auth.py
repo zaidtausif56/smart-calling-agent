@@ -161,7 +161,7 @@ def get_orders():
         return jsonify({'error': 'Failed to fetch orders'}), 500
 
 
-@auth_bp.route('/api/orders/<int:order_id>', methods=['GET'])
+@auth_bp.route('/api/orders/<string:order_id>', methods=['GET'])
 def get_order_detail(order_id):
     """Get details of a specific order"""
     try:
@@ -184,7 +184,7 @@ def get_order_detail(order_id):
         
         # Get all orders and find the specific one
         orders = get_orders_by_phone(phone_number)
-        order = next((o for o in orders if o['id'] == order_id), None)
+        order = next((o for o in orders if str(o['id']) == str(order_id)), None)
         
         if not order:
             return jsonify({'error': 'Order not found'}), 404
@@ -199,7 +199,7 @@ def get_order_detail(order_id):
         return jsonify({'error': 'Failed to fetch order detail'}), 500
 
 
-@auth_bp.route('/api/orders/<int:order_id>', methods=['PATCH'])
+@auth_bp.route('/api/orders/<string:order_id>', methods=['PATCH'])
 def update_order(order_id):
     """Update order status"""
     try:
@@ -242,7 +242,7 @@ def update_order(order_id):
         return jsonify({'error': 'Failed to update order'}), 500
 
 
-@auth_bp.route('/api/orders/<int:order_id>', methods=['DELETE'])
+@auth_bp.route('/api/orders/<string:order_id>', methods=['DELETE'])
 def cancel_order(order_id):
     """Cancel (delete) an order"""
     try:
