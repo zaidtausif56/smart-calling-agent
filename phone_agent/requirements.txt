@@ -7,3 +7,4 @@ deepgram-sdk
 google-generativeai
 flask_cors
 PyJWT
+requests
